@@ -1,26 +1,22 @@
-// Cloudflare Pages Function — API proxy for Nithi AI
-// Keys are stored as Cloudflare environment secrets, never exposed to the client
+// Cloudflare Worker — API proxy + static assets for Nithi AI
+// Secrets are stored as Worker environment variables, never exposed to the client
 
-export async function onRequestPost(context) {
-  const { env } = context;
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type',
+  'Content-Type': 'application/json'
+};
 
-  // CORS headers
-  const corsHeaders = {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type',
-    'Content-Type': 'application/json'
-  };
-
+async function handleChat(request, env) {
   try {
-    const body = await context.request.json();
+    const body = await request.json();
     const { messages, provider, model } = body;
 
     if (!provider) {
       return new Response(JSON.stringify({ error: 'Missing provider' }), { status: 400, headers: corsHeaders });
     }
 
-    // Route to the requested provider
     if (provider === 'openrouter') {
       const apiKey = env.OPENROUTER_API_KEY;
       if (!apiKey) return new Response(JSON.stringify({ error: 'OpenRouter key not configured' }), { status: 500, headers: corsHeaders });
@@ -30,7 +26,7 @@ export async function onRequestPost(context) {
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${apiKey}`,
-          'HTTP-Referer': 'https://nithi-ai.pages.dev',
+          'HTTP-Referer': 'https://nithi-ai.dataeselva7.workers.dev',
           'X-Title': 'Nithi AI'
         },
         body: JSON.stringify({
@@ -89,13 +85,27 @@ export async function onRequestPost(context) {
   }
 }
 
-// Handle CORS preflight
-export async function onRequestOptions() {
-  return new Response(null, {
-    headers: {
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type'
+export default {
+  async fetch(request, env) {
+    const url = new URL(request.url);
+
+    // Handle API proxy route
+    if (url.pathname === '/api/chat') {
+      if (request.method === 'OPTIONS') {
+        return new Response(null, {
+          headers: {
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Methods': 'POST, OPTIONS',
+            'Access-Control-Allow-Headers': 'Content-Type'
+          }
+        });
+      }
+      if (request.method === 'POST') {
+        return handleChat(request, env);
+      }
     }
-  });
-}
+
+    // Everything else — serve static assets from public/
+    return env.ASSETS.fetch(request);
+  }
+};
