@@ -1,4 +1,4 @@
-const CACHE_NAME = 'nithi-ai-v4';
+const CACHE_NAME = 'nithi-ai-v5';
 const ASSETS = [
   './index.html',
   './calculators.js',
@@ -27,6 +27,7 @@ self.addEventListener('activate', e => {
 self.addEventListener('fetch', e => {
   // Network-first for API calls — never cache
   if (e.request.url.includes('/api/chat') ||
+      e.request.url.includes('/api/search') ||
       e.request.url.includes('openrouter.ai') ||
       e.request.url.includes('generativelanguage.googleapis.com') ||
       e.request.url.includes('api.openai.com') ||

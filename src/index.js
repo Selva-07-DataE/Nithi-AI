@@ -33,6 +33,102 @@ function makeStreamCorsHeaders(request) {
 const VALID_PROVIDERS = new Set(['openrouter', 'gemini', 'openai']);
 const MODEL_PATTERN = /^[a-zA-Z0-9_.\-\/: ]+$/;
 
+// ===== Web Search Proxy =====
+async function handleSearch(request) {
+  const corsHeaders = makeCorsHeaders(request);
+  try {
+    const url = new URL(request.url);
+    const query = url.searchParams.get('q');
+    if (!query || query.length > 200) {
+      return new Response(JSON.stringify({ error: 'Invalid query' }), { status: 400, headers: corsHeaders });
+    }
+
+    const results = [];
+
+    // 1. Google News RSS — returns current news articles
+    try {
+      const encoded = encodeURIComponent(query);
+      const rssUrl = `https://news.google.com/rss/search?q=${encoded}&hl=en-IN&gl=IN&ceid=IN:en`;
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 5000);
+      const res = await fetch(rssUrl, {
+        headers: { 'User-Agent': 'Mozilla/5.0 (compatible; NithiAI/1.0)' },
+        signal: controller.signal
+      });
+      clearTimeout(timeout);
+      if (res.ok) {
+        const xml = await res.text();
+        // Parse RSS items with regex (lightweight, no XML parser needed)
+        const items = xml.match(/<item>[\s\S]*?<\/item>/g) || [];
+        for (const item of items.slice(0, 6)) {
+          const titleMatch = item.match(/<title>([\s\S]*?)<\/title>/);
+          const pubDateMatch = item.match(/<pubDate>([\s\S]*?)<\/pubDate>/);
+          const sourceMatch = item.match(/<source[^>]*>([\s\S]*?)<\/source>/);
+          if (titleMatch) {
+            // Title format: "Article title - Source"
+            let title = titleMatch[1].replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&#39;/g, "'").replace(/&quot;/g, '"');
+            const source = sourceMatch ? sourceMatch[1].trim() : '';
+            // Remove " - Source" from end of title if present
+            if (source && title.endsWith(' - ' + source)) {
+              title = title.slice(0, -(source.length + 3));
+            }
+            const date = pubDateMatch ? pubDateMatch[1].trim() : '';
+            results.push({
+              title: title.trim(),
+              snippet: date ? `[${new Date(date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}] ${title.trim()}` : title.trim(),
+              source: source,
+              date: date,
+              type: 'news'
+            });
+          }
+        }
+      }
+    } catch (e) {
+      // Google News failed, continue with other sources
+    }
+
+    // 2. DuckDuckGo Instant Answer API — encyclopedic/reference info
+    try {
+      const encoded = encodeURIComponent(query);
+      const ddgUrl = `https://api.duckduckgo.com/?q=${encoded}&format=json&no_html=1&skip_disambig=1`;
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 4000);
+      const res = await fetch(ddgUrl, { signal: controller.signal });
+      clearTimeout(timeout);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.AbstractText) {
+          results.push({
+            title: data.AbstractSource || 'Summary',
+            snippet: data.AbstractText,
+            url: data.AbstractURL,
+            type: 'reference'
+          });
+        }
+        if (data.RelatedTopics) {
+          for (const t of data.RelatedTopics.slice(0, 4)) {
+            if (t.Text) {
+              results.push({
+                title: (t.FirstURL || '').split('/').pop()?.replace(/_/g, ' ') || 'Related',
+                snippet: t.Text,
+                url: t.FirstURL,
+                type: 'reference'
+              });
+            }
+          }
+        }
+      }
+    } catch (e) {
+      // DDG failed, continue
+    }
+
+    return new Response(JSON.stringify({ results, query }), { headers: corsHeaders });
+
+  } catch (err) {
+    return new Response(JSON.stringify({ error: 'Search failed' }), { status: 500, headers: corsHeaders });
+  }
+}
+
 async function handleChat(request, env) {
   const corsHeaders = makeCorsHeaders(request);
   const streamCorsHeaders = makeStreamCorsHeaders(request);
@@ -134,20 +230,24 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
 
-    // Handle API proxy route
-    if (url.pathname === '/api/chat') {
-      if (request.method === 'OPTIONS') {
-        return new Response(null, {
-          headers: {
-            'Access-Control-Allow-Origin': getCorsOrigin(request),
-            'Access-Control-Allow-Methods': 'POST, OPTIONS',
-            'Access-Control-Allow-Headers': 'Content-Type'
-          }
-        });
-      }
-      if (request.method === 'POST') {
-        return handleChat(request, env);
-      }
+    // CORS preflight for API routes
+    if (request.method === 'OPTIONS' && url.pathname.startsWith('/api/')) {
+      return new Response(null, {
+        headers: {
+          'Access-Control-Allow-Origin': getCorsOrigin(request),
+          'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+          'Access-Control-Allow-Headers': 'Content-Type'
+        }
+      });
+    }
+
+    // API routes
+    if (url.pathname === '/api/chat' && request.method === 'POST') {
+      return handleChat(request, env);
+    }
+
+    if (url.pathname === '/api/search' && request.method === 'GET') {
+      return handleSearch(request);
     }
 
     // Everything else — serve static assets from public/

@@ -12,9 +12,9 @@ function toggleWebSearch() {
 async function searchWeb(query) {
   if (!webSearchEnabled) return null;
 
-  // Try multiple sources for better grounding
+  // Try server-side search proxy first (Google News + DDG), then Wikipedia as supplement
   const results = await Promise.allSettled([
-    searchDuckDuckGo(query),
+    searchViaProxy(query),
     searchWikipedia(query)
   ]);
 
@@ -35,13 +35,62 @@ async function searchWeb(query) {
   });
 
   let context = 'WEB SEARCH RESULTS for "' + query + '" (auto-grounded):\n\n';
-  allResults.slice(0, 8).forEach((r, i) => {
-    context += `${i+1}. **${r.title}**: ${r.snippet}`;
+  allResults.slice(0, 10).forEach((r, i) => {
+    context += `${i+1}. **${r.title}**`;
+    if (r.source) context += ` (${r.source})`;
+    if (r.date) context += ` [${r.date}]`;
+    context += `: ${r.snippet}`;
     if (r.url) context += ` (Source: ${r.url})`;
     context += '\n\n';
   });
 
   return context;
+}
+
+async function searchViaProxy(query) {
+  try {
+    // Extract key search terms — remove filler words for better results
+    const searchQuery = extractSearchTerms(query);
+    const encoded = encodeURIComponent(searchQuery);
+    const url = `/api/search?q=${encoded}`;
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000);
+
+    const res = await fetch(url, { signal: controller.signal });
+    clearTimeout(timeout);
+
+    if (!res.ok) return [];
+    const data = await res.json();
+    return data.results || [];
+  } catch(e) {
+    console.log('Search proxy failed:', e.message);
+    // Fallback to client-side DuckDuckGo Instant Answer API
+    return searchDuckDuckGo(query);
+  }
+}
+
+function extractSearchTerms(text) {
+  // Remove common question words, filler, and keep meaningful terms
+  const stopWords = new Set([
+    'what', 'is', 'the', 'a', 'an', 'are', 'was', 'were', 'how', 'do', 'does',
+    'can', 'could', 'would', 'should', 'will', 'about', 'tell', 'me', 'please',
+    'give', 'explain', 'know', 'want', 'need', 'help', 'latest', 'update',
+    'updates', 'new', 'recent', 'current', 'today', 'now', 'i', 'my', 'this',
+    'that', 'of', 'in', 'for', 'to', 'from', 'on', 'with', 'and', 'or', 'but',
+    'has', 'have', 'had', 'been', 'being', 'be', 'it', 'its', 'any', 'some',
+    'there', 'their', 'they', 'you', 'your', 'we', 'our', 'us', 'hi', 'hello'
+  ]);
+
+  const words = text.toLowerCase()
+    .replace(/[?!.,;:'"()]/g, '')
+    .split(/\s+/)
+    .filter(w => w.length > 1 && !stopWords.has(w));
+
+  // Keep at most 5 key terms for focused search
+  const terms = words.slice(0, 5).join(' ');
+  // If too short after filtering, use first 4 words of original
+  return terms.length >= 2 ? terms : text.split(/\s+/).slice(0, 4).join(' ');
 }
 
 async function searchDuckDuckGo(query) {
@@ -134,5 +183,10 @@ async function searchWikipedia(query) {
 
 function getSearchPromptAddition(searchResults) {
   if (!searchResults) return '';
-  return `\n\nIMPORTANT: The following web search results have been automatically retrieved to help you answer with the latest information. Use this data as reference and cite sources when applicable. If the information is relevant, incorporate it. If the web results conflict with your knowledge, prefer the more recent web data and note the discrepancy. Begin your response with "🌐 " when using web data.\n\n${searchResults}`;
+  return `\n\nIMPORTANT: The following web search results (including recent NEWS articles) have been automatically retrieved. You MUST use this data to provide a detailed, informative answer. DO NOT simply redirect the user to official websites. Instead:
+1. Summarize the key findings from the search results
+2. Explain the topic using the information found
+3. Cite sources where applicable
+4. Only add a disclaimer at the end if needed
+Begin your response with "🌐 " when using web data.\n\n${searchResults}`;
 }
