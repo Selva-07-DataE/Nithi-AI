@@ -1591,7 +1591,7 @@ function rmTyping() { const t = document.getElementById('typing'); if (t) t.remo
 async function sendMsg() {
   const text = inpEl.value.trim();
   if (!text || busy) return;
-  if (!apiKey) { showToast('⚠️ API key not configured'); return; }
+  if (!apiKey && !window.USE_PROXY) { showToast('⚠️ API key not configured'); return; }
 
   // Client-side safety check
   const safety = checkInputSafety(text);
