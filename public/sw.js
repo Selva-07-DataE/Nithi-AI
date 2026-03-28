@@ -1,4 +1,4 @@
-const CACHE_NAME = 'nithi-ai-v3';
+const CACHE_NAME = 'nithi-ai-v4';
 const ASSETS = [
   './index.html',
   './calculators.js',

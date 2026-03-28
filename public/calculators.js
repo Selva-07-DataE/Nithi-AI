@@ -311,12 +311,22 @@ function yearTable(title, headers, rows) {
     <table class="calc-table"><thead><tr>${ths}</tr></thead><tbody>${trs}</tbody></table></details>`;
 }
 
+// ===== INPUT VALIDATION HELPER =====
+function getNumVal(id, min, max, fallback) {
+  const el = document.getElementById(id);
+  let v = parseFloat(el.value);
+  if (isNaN(v) || v < min) v = min;
+  if (max !== undefined && v > max) v = max;
+  el.value = v;
+  return v;
+}
+
 // ===== CALCULATOR FUNCTIONS =====
 function calcSIP() {
-  const P = +document.getElementById('cSipAmt').value;
-  const r = +document.getElementById('cSipRate').value / 100 / 12;
-  const annualR = +document.getElementById('cSipRate').value;
-  const n = +document.getElementById('cSipYrs').value;
+  const P = getNumVal('cSipAmt', 500);
+  const r = getNumVal('cSipRate', 1, 30, 12) / 100 / 12;
+  const annualR = getNumVal('cSipRate', 1, 30, 12);
+  const n = getNumVal('cSipYrs', 1, 40, 10);
   const months = n * 12;
   const stepUp = document.getElementById('cSipStepUp').checked;
   const stepPct = stepUp ? +document.getElementById('cSipStep').value / 100 : 0;
@@ -363,10 +373,10 @@ function calcSIP() {
 }
 
 function calcLumpSum() {
-  const P = +document.getElementById('cLsAmt').value;
-  const r = +document.getElementById('cLsRate').value / 100;
-  const annualR = +document.getElementById('cLsRate').value;
-  const n = +document.getElementById('cLsYrs').value;
+  const P = getNumVal('cLsAmt', 1000);
+  const r = getNumVal('cLsRate', 1, 30, 12) / 100;
+  const annualR = getNumVal('cLsRate', 1, 30, 12);
+  const n = getNumVal('cLsYrs', 1, 40, 10);
   const showFd = document.getElementById('cLsFdComp').checked;
   const showInf = document.getElementById('cLsInf').checked;
   const infRate = 0.06;
@@ -413,10 +423,10 @@ function calcLumpSum() {
 }
 
 function calcEMI() {
-  const P = +document.getElementById('cEmiAmt').value;
-  const annualR = +document.getElementById('cEmiRate').value;
+  const P = getNumVal('cEmiAmt', 10000);
+  const annualR = getNumVal('cEmiRate', 4, 20, 8.5);
   const r = annualR / 100 / 12;
-  const n = +document.getElementById('cEmiYrs').value * 12;
+  const n = getNumVal('cEmiYrs', 1, 30, 20) * 12;
   const doPrepay = document.getElementById('cEmiPrepay').checked;
   const extraPay = doPrepay ? +document.getElementById('cEmiExtra').value : 0;
 
@@ -486,12 +496,12 @@ function calcEMI() {
 }
 
 function calcFD() {
-  const P = +document.getElementById('cFdAmt').value;
+  const P = getNumVal('cFdAmt', 1000);
   const isSenior = document.getElementById('cFdSenior').checked;
-  const baseRate = +document.getElementById('cFdRate').value;
+  const baseRate = getNumVal('cFdRate', 3, 10, 7);
   const rateUsed = isSenior ? baseRate + 0.5 : baseRate;
   const r = rateUsed / 100;
-  const n = +document.getElementById('cFdYrs').value;
+  const n = getNumVal('cFdYrs', 1, 10, 5);
   const comp = +document.getElementById('cFdComp').value;
   const showTds = document.getElementById('cFdTds').checked;
   const slabPct = +document.getElementById('cFdSlab').value;
@@ -542,9 +552,9 @@ function calcFD() {
 }
 
 function calcPPF() {
-  const baseAmt = +document.getElementById('cPpfAmt').value;
-  const n = +document.getElementById('cPpfYrs').value;
-  const r = +document.getElementById('cPpfRate').value / 100;
+  const baseAmt = getNumVal('cPpfAmt', 500, 150000, 150000);
+  const n = getNumVal('cPpfYrs', 15, 50, 15);
+  const r = getNumVal('cPpfRate', 5, 10, 7.1) / 100;
   const doStep = document.getElementById('cPpfStep').checked;
   const stepAmt = doStep ? +document.getElementById('cPpfStepPct').value : 0;
 
@@ -583,9 +593,9 @@ function calcPPF() {
 }
 
 function calcSWP() {
-  const corpus = +document.getElementById('cSwpAmt').value;
-  const baseMonthly = +document.getElementById('cSwpWith').value;
-  const annualR = +document.getElementById('cSwpRate').value;
+  const corpus = getNumVal('cSwpAmt', 100000);
+  const baseMonthly = getNumVal('cSwpWith', 1000);
+  const annualR = getNumVal('cSwpRate', 1, 18, 8);
   const r = annualR / 100 / 12;
   const doInf = document.getElementById('cSwpInf').checked;
   const infRate = doInf ? +document.getElementById('cSwpInfRate').value / 100 : 0;
@@ -636,15 +646,15 @@ function calcSWP() {
 }
 
 function calcRetire() {
-  const age = +document.getElementById('cRetAge').value;
-  const retAge = +document.getElementById('cRetRetAge').value;
-  const lifeExp = +document.getElementById('cRetLife').value;
-  const exp = +document.getElementById('cRetExp').value;
-  const inf = +document.getElementById('cRetInf').value / 100;
-  const preRet = +document.getElementById('cRetPre').value / 100;
-  const postRet = +document.getElementById('cRetPost').value / 100;
-  const existCorpus = +document.getElementById('cRetExist').value;
-  const epfMonthly = +document.getElementById('cRetEpf').value;
+  const age = getNumVal('cRetAge', 18, 60, 30);
+  const retAge = getNumVal('cRetRetAge', 40, 70, 60);
+  const lifeExp = getNumVal('cRetLife', 65, 100, 85);
+  const exp = getNumVal('cRetExp', 5000);
+  const inf = getNumVal('cRetInf', 3, 10, 6) / 100;
+  const preRet = getNumVal('cRetPre', 8, 18, 12) / 100;
+  const postRet = getNumVal('cRetPost', 4, 12, 8) / 100;
+  const existCorpus = getNumVal('cRetExist', 0);
+  const epfMonthly = getNumVal('cRetEpf', 0);
 
   const yrsToRetire = retAge - age;
   const retYrs = lifeExp - retAge;
@@ -721,9 +731,9 @@ function calcRetire() {
 }
 
 function calcTax() {
-  const income = +document.getElementById('cTaxInc').value;
-  const d80c = Math.min(+document.getElementById('cTax80c').value, 150000);
-  const d80d = Math.min(+document.getElementById('cTax80d').value, 100000);
+  const income = getNumVal('cTaxInc', 100000);
+  const d80c = Math.min(getNumVal('cTax80c', 0, 150000, 0), 150000);
+  const d80d = Math.min(getNumVal('cTax80d', 0, 100000, 0), 100000);
   const hra = +document.getElementById('cTaxHra').value;
   const other = +document.getElementById('cTaxOther').value;
   const nps = Math.min(+document.getElementById('cTaxNps').value, 50000);
@@ -871,10 +881,10 @@ function getNewSlabBreakdown(t) {
 
 // ===== INTEREST CALCULATOR (SI & CI) =====
 function calcInterest() {
-  const P = +document.getElementById('cIntAmt').value;
-  const annualR = +document.getElementById('cIntRate').value;
-  const yrs = +document.getElementById('cIntYrs').value;
-  const mos = +document.getElementById('cIntMo').value;
+  const P = getNumVal('cIntAmt', 100);
+  const annualR = getNumVal('cIntRate', 1, 30, 7.25);
+  const yrs = getNumVal('cIntYrs', 0, 50, 3);
+  const mos = getNumVal('cIntMo', 0, 11, 6);
   const t = yrs + mos / 12;
   const isCI = document.getElementById('cIntCI').checked;
   const comp = isCI ? +document.getElementById('cIntComp').value : 1;
@@ -941,7 +951,10 @@ const FALLBACK_RATES = {
 
 async function fetchLiveRates(base) {
   try {
-    const res = await fetch(`https://open.er-api.com/v6/latest/${base}`);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
+    const res = await fetch(`https://open.er-api.com/v6/latest/${base}`, { signal: controller.signal });
+    clearTimeout(timeout);
     if (!res.ok) throw new Error('API error');
     const data = await res.json();
     if (data.result === 'success') return data.rates;
@@ -950,7 +963,7 @@ async function fetchLiveRates(base) {
 }
 
 async function calcConvertCurrency() {
-  const amt = +document.getElementById('cConvAmt').value;
+  const amt = getNumVal('cConvAmt', 0);
   const from = document.getElementById('cConvFrom').value;
   const to = document.getElementById('cConvTo').value;
   const resultEl = document.getElementById('cConvCurrResult');
@@ -1017,41 +1030,6 @@ async function calcConvertCurrency() {
     { label: `🎯 ${amt.toLocaleString()} ${from} =`, value: `${fmtConverted} ${to}`, highlight: true },
     ...multiItems
   ], '', ask, extra);
-}
-
-function calcConvertRate() {
-  const rate = +document.getElementById('cConvRate').value;
-  const type = document.getElementById('cConvRateType').value;
-  let annual, monthly, daily;
-
-  if (type === 'annual') {
-    annual = rate;
-    monthly = (Math.pow(1 + rate / 100, 1 / 12) - 1) * 100;
-    daily = (Math.pow(1 + rate / 100, 1 / 365) - 1) * 100;
-  } else if (type === 'monthly') {
-    monthly = rate;
-    annual = (Math.pow(1 + rate / 100, 12) - 1) * 100;
-    daily = (Math.pow(1 + rate / 100, 12 / 365) - 1) * 100;
-  } else {
-    daily = rate;
-    annual = (Math.pow(1 + rate / 100, 365) - 1) * 100;
-    monthly = (Math.pow(1 + rate / 100, 365 / 12) - 1) * 100;
-  }
-
-  const items = [
-    { label: '📅 Annual Rate', value: annual.toFixed(4) + '%', highlight: type === 'annual' },
-    { label: '🗓️ Monthly Rate', value: monthly.toFixed(4) + '%', highlight: type === 'monthly' },
-    { label: '📆 Daily Rate', value: daily.toFixed(6) + '%', highlight: type === 'daily' }
-  ];
-
-  let extra = makeStats([
-    { label: 'Conversion Method', value: 'Effective (Compound)', accent: true },
-    { label: 'Simple Monthly', value: (annual / 12).toFixed(4) + '%' },
-    { label: 'Simple Daily', value: (annual / 365).toFixed(6) + '%' }
-  ]);
-  extra += `<div class="calc-note">💡 Effective rates account for compounding. Simple rates are just annual ÷ 12 or ÷ 365.</div>`;
-
-  document.getElementById('cConvRateResult').innerHTML = resultCard(items, '', `Convert ${rate}% ${type} rate to other frequencies. Annual: ${annual.toFixed(4)}%, Monthly: ${monthly.toFixed(4)}%, Daily: ${daily.toFixed(6)}%`, extra);
 }
 
 function askAboutCalc(text) {

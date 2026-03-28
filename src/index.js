@@ -1,29 +1,55 @@
 // Cloudflare Worker — API proxy + static assets for Nithi AI
 // Secrets are stored as Worker environment variables, never exposed to the client
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type',
-  'Content-Type': 'application/json'
-};
+const ALLOWED_ORIGIN = 'https://nithi-ai.dataeselva7.workers.dev';
 
-const streamCorsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type',
-  'Content-Type': 'text/event-stream',
-  'Cache-Control': 'no-cache',
-  'Connection': 'keep-alive'
-};
+function getCorsOrigin(request) {
+  const origin = request.headers.get('Origin') || '';
+  // Allow same-site requests (no Origin header) and the deployed site
+  return (!origin || origin === ALLOWED_ORIGIN) ? ALLOWED_ORIGIN : ALLOWED_ORIGIN;
+}
+
+function makeCorsHeaders(request) {
+  return {
+    'Access-Control-Allow-Origin': getCorsOrigin(request),
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type',
+    'Content-Type': 'application/json'
+  };
+}
+
+function makeStreamCorsHeaders(request) {
+  return {
+    'Access-Control-Allow-Origin': getCorsOrigin(request),
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type',
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    'Connection': 'keep-alive'
+  };
+}
+
+// Allowed providers and model pattern validation
+const VALID_PROVIDERS = new Set(['openrouter', 'gemini', 'openai']);
+const MODEL_PATTERN = /^[a-zA-Z0-9_.\-\/: ]+$/;
 
 async function handleChat(request, env) {
+  const corsHeaders = makeCorsHeaders(request);
+  const streamCorsHeaders = makeStreamCorsHeaders(request);
   try {
     const body = await request.json();
     const { messages, provider, model, stream } = body;
 
     if (!provider) {
       return new Response(JSON.stringify({ error: 'Missing provider' }), { status: 400, headers: corsHeaders });
+    }
+
+    if (!VALID_PROVIDERS.has(provider)) {
+      return new Response(JSON.stringify({ error: 'Invalid provider' }), { status: 400, headers: corsHeaders });
+    }
+
+    if (model && !MODEL_PATTERN.test(model)) {
+      return new Response(JSON.stringify({ error: 'Invalid model name' }), { status: 400, headers: corsHeaders });
     }
 
     if (provider === 'openrouter') {
@@ -97,10 +123,10 @@ async function handleChat(request, env) {
       return new Response(JSON.stringify(data), { status: res.status, headers: corsHeaders });
     }
 
-    return new Response(JSON.stringify({ error: 'Invalid provider' }), { status: 400, headers: corsHeaders });
+    return new Response(JSON.stringify({ error: 'Unknown error' }), { status: 500, headers: corsHeaders });
 
   } catch (err) {
-    return new Response(JSON.stringify({ error: 'Server error' }), { status: 500, headers: corsHeaders });
+    return new Response(JSON.stringify({ error: 'Server error' }), { status: 500, headers: makeCorsHeaders(request) });
   }
 }
 
@@ -113,7 +139,7 @@ export default {
       if (request.method === 'OPTIONS') {
         return new Response(null, {
           headers: {
-            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Origin': getCorsOrigin(request),
             'Access-Control-Allow-Methods': 'POST, OPTIONS',
             'Access-Control-Allow-Headers': 'Content-Type'
           }
