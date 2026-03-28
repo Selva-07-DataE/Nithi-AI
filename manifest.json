@@ -1,0 +1,25 @@
+{
+  "name": "Nithi AI — India Financial Guide",
+  "short_name": "Nithi AI",
+  "description": "Your AI-powered Indian personal finance advisor. Get guidance on SIP, taxes, investments, loans, and more.",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#1a1a1a",
+  "theme_color": "#1a1a1a",
+  "orientation": "any",
+  "categories": ["finance", "education"],
+  "lang": "en-IN",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    },
+    {
+      "src": "icon.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ]
+}
