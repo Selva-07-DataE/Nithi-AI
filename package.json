@@ -1,0 +1,20 @@
+{
+  "name": "nithi_ai",
+  "version": "1.0.0",
+  "description": "",
+  "main": "config.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Selva-07-DataE/Nithi-AI.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/Selva-07-DataE/Nithi-AI/issues"
+  },
+  "homepage": "https://github.com/Selva-07-DataE/Nithi-AI#readme"
+}

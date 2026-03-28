@@ -1587,6 +1587,86 @@ function showTyping() {
 
 function rmTyping() { const t = document.getElementById('typing'); if (t) t.remove(); }
 
+// ===== STREAM READER =====
+// Reads SSE stream from OpenRouter/OpenAI and calls onChunk with each text delta
+async function readStream(response, onChunk) {
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let fullText = '';
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    const lines = buffer.split('\n');
+    buffer = lines.pop() || '';
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed || !trimmed.startsWith('data: ')) continue;
+      const payload = trimmed.slice(6);
+      if (payload === '[DONE]') continue;
+      try {
+        const json = JSON.parse(payload);
+        const delta = json.choices?.[0]?.delta?.content || '';
+        if (delta) {
+          fullText += delta;
+          onChunk(fullText);
+        }
+        // Check for error in stream
+        if (json.error) {
+          return { error: json.error, text: fullText };
+        }
+      } catch (e) { /* skip non-JSON lines */ }
+    }
+  }
+  return { text: fullText };
+}
+
+// ===== ADD STREAMING MSG =====
+function addStreamMsg(webGrounded) {
+  const wc = document.getElementById('welcomeCard');
+  if (wc) wc.remove();
+
+  const d = document.createElement('div');
+  d.className = 'msg ai'; d.id = 'stream-msg';
+
+  const av = document.createElement('div');
+  av.className = 'av ai'; av.textContent = '₹';
+
+  const wrap = document.createElement('div');
+  wrap.className = 'msg-wrap';
+
+  const b = document.createElement('div');
+  b.className = 'bubble'; b.id = 'stream-bubble';
+
+  wrap.appendChild(b);
+  d.appendChild(av); d.appendChild(wrap);
+  msgsEl.appendChild(d);
+  msgsEl.scrollTop = msgsEl.scrollHeight;
+
+  return { msgEl: d, bubbleEl: b, wrapEl: wrap };
+}
+
+function finalizeStreamMsg(msgEl, bubbleEl, wrapEl, fullText, formattedHtml) {
+  bubbleEl.innerHTML = formattedHtml;
+  msgEl.removeAttribute('id');
+  bubbleEl.removeAttribute('id');
+
+  const meta = document.createElement('div');
+  meta.className = 'msg-meta';
+  meta.innerHTML = '<span class="msg-time">' + getTime() + '</span>';
+  const copyBtn = document.createElement('button');
+  copyBtn.className = 'copy-btn';
+  copyBtn.innerHTML = '📋 Copy';
+  copyBtn.onclick = () => copyText(fullText, copyBtn);
+  meta.appendChild(copyBtn);
+  wrapEl.appendChild(meta);
+  msgsEl.scrollTop = msgsEl.scrollHeight;
+}
+
 // ===== SEND =====
 async function sendMsg() {
   const text = inpEl.value.trim();
@@ -1626,18 +1706,15 @@ async function sendMsg() {
 
     // Retry wrapper: up to 2 attempts (initial + 1 retry with 1.5s delay)
     const MAX_ATTEMPTS = 2;
-    let data = null;
+    let reply = null;
     let usedModel = null;
     let usedGemini = false;
+    let usedOpenAI = false;
     let allFailed = true;
 
     for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
-      // Wait before retry
-      if (attempt > 0) {
-        await new Promise(r => setTimeout(r, 1500));
-      }
+      if (attempt > 0) await new Promise(r => setTimeout(r, 1500));
 
-      // Auto-rotate through OpenRouter models, then Gemini fallback
       const models = getModels();
       const startIdx = currentModelIndex % models.length;
       const tryOrder = [];
@@ -1646,22 +1723,18 @@ async function sendMsg() {
       }
       currentModelIndex++;
 
-      data = null;
-      usedModel = null;
-      usedGemini = false;
-      allFailed = true;
+      reply = null; usedModel = null; usedGemini = false; usedOpenAI = false; allFailed = true;
 
-      // Try OpenRouter models
+      // Try OpenRouter models (with streaming)
       for (const m of tryOrder) {
         try {
-          let res, resData;
+          let res;
           if (window.USE_PROXY) {
             res = await fetch('/api/chat', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
-                provider: 'openrouter',
-                model: m.id,
+                provider: 'openrouter', model: m.id, stream: true,
                 messages: [{ role: 'system', content: systemMsg }, ...history]
               })
             });
@@ -1675,25 +1748,61 @@ async function sendMsg() {
                 'X-Title': 'Nithi AI'
               },
               body: JSON.stringify({
-                model: m.id,
+                model: m.id, stream: true,
                 messages: [{ role: 'system', content: systemMsg }, ...history],
-                max_tokens: 800,
-                temperature: 0.4
+                max_tokens: 800, temperature: 0.4
               })
             });
           }
-          data = await res.json();
-          if (data.error && (data.error.code == 429 || data.error.code == 503)) continue;
-          if (data.error) { continue; }
-          usedModel = m;
-          allFailed = false;
-          break;
+
+          // Check if response is a stream or JSON error
+          const ct = res.headers.get('content-type') || '';
+          if (!ct.includes('text/event-stream')) {
+            const data = await res.json();
+            if (data.error && (data.error.code == 429 || data.error.code == 503)) continue;
+            if (data.error) continue;
+            // Non-stream success (unlikely but handle it)
+            reply = data.choices?.[0]?.message?.content || '';
+            usedModel = m; allFailed = false; break;
+          }
+
+          // Stream the response
+          rmTyping();
+          const { msgEl, bubbleEl, wrapEl } = addStreamMsg(webGrounded);
+          const result = await readStream(res, (partialText) => {
+            bubbleEl.innerHTML = fmt(partialText);
+            msgsEl.scrollTop = msgsEl.scrollHeight;
+          });
+
+          if (result.error) {
+            msgEl.remove();
+            showTyping();
+            continue;
+          }
+          if (!result.text || result.text.trim().length === 0) {
+            msgEl.remove();
+            showTyping();
+            continue;
+          }
+
+          reply = result.text;
+          usedModel = m; allFailed = false;
+
+          // Finalize the stream message
+          reply = sanitizeResponse(reply);
+          history.push({ role: 'assistant', content: reply });
+          let formattedReply = fmt(reply);
+          if (webGrounded) formattedReply = '<div class="search-badge">🌐 Web-grounded response</div>' + formattedReply;
+          if (usedModel && usedModel.id !== getModels()[0].id) formattedReply = '<div class="search-badge">🔄 Responded via ' + usedModel.name + '</div>' + formattedReply;
+          finalizeStreamMsg(msgEl, bubbleEl, wrapEl, reply, formattedReply);
+          saveChat();
+          return; // Done — exit sendMsg entirely
         } catch(fetchErr) {
           continue;
         }
       }
 
-      // Gemini fallback if all OpenRouter models failed
+      // Gemini fallback (non-streaming)
       if (allFailed) {
         try {
           const geminiModel = (typeof CONFIG !== 'undefined' && CONFIG.GEMINI_MODEL) ? CONFIG.GEMINI_MODEL : 'gemini-2.0-flash';
@@ -1703,10 +1812,8 @@ async function sendMsg() {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
-                provider: 'gemini',
-                model: geminiModel,
-                prompt: systemMsg + '\n\nUser: ' + text,
-                messages: []
+                provider: 'gemini', model: geminiModel,
+                prompt: systemMsg + '\n\nUser: ' + text, messages: []
               })
             });
             geminiData = await geminiRes.json();
@@ -1723,94 +1830,100 @@ async function sendMsg() {
             geminiData = await geminiRes.json();
           }
           if (geminiData.candidates && geminiData.candidates[0]?.content?.parts?.[0]?.text) {
-            data = { gemini: true, text: geminiData.candidates[0].content.parts[0].text };
-            usedGemini = true;
-            allFailed = false;
+            reply = geminiData.candidates[0].content.parts[0].text;
+            usedGemini = true; allFailed = false;
           }
         } catch(gemErr) { /* will try OpenAI next */ }
       }
 
-      // OpenAI GPT fallback if Gemini also failed
+      // OpenAI GPT fallback (with streaming)
       if (allFailed) {
         try {
           const openaiModel = (typeof CONFIG !== 'undefined' && CONFIG.OPENAI_MODEL) ? CONFIG.OPENAI_MODEL : 'gpt-5.4-nano';
+          let res;
           if (window.USE_PROXY) {
-            const oaiRes = await fetch('/api/chat', {
+            res = await fetch('/api/chat', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
-                provider: 'openai',
-                model: openaiModel,
+                provider: 'openai', model: openaiModel, stream: true,
                 messages: [{ role: 'system', content: systemMsg }, ...history]
               })
             });
-            const oaiData = await oaiRes.json();
-            if (oaiData.choices && oaiData.choices[0]?.message?.content) {
-              data = { openai: true, text: oaiData.choices[0].message.content };
-              allFailed = false;
-            }
           } else {
             const openaiKey = (typeof CONFIG !== 'undefined' && CONFIG.OPENAI_API_KEY) ? CONFIG.OPENAI_API_KEY : '';
-            if (openaiKey) {
-              const oaiRes = await fetch('https://api.openai.com/v1/chat/completions', {
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json',
-                  'Authorization': 'Bearer ' + openaiKey
-                },
-                body: JSON.stringify({
-                  model: openaiModel,
-                  messages: [{ role: 'system', content: systemMsg }, ...history],
-                  max_completion_tokens: 800,
-                  temperature: 0.4
-                })
-              });
-              const oaiData = await oaiRes.json();
-              if (oaiData.choices && oaiData.choices[0]?.message?.content) {
-                data = { openai: true, text: oaiData.choices[0].message.content };
-                allFailed = false;
-              }
+            if (!openaiKey) throw new Error('No OpenAI key');
+            res = await fetch('https://api.openai.com/v1/chat/completions', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': 'Bearer ' + openaiKey
+              },
+              body: JSON.stringify({
+                model: openaiModel, stream: true,
+                messages: [{ role: 'system', content: systemMsg }, ...history],
+                max_completion_tokens: 800, temperature: 0.4
+              })
+            });
+          }
+
+          const ct = res.headers.get('content-type') || '';
+          if (!ct.includes('text/event-stream')) {
+            const oaiData = await res.json();
+            if (oaiData.choices && oaiData.choices[0]?.message?.content) {
+              reply = oaiData.choices[0].message.content;
+              usedOpenAI = true; allFailed = false;
+            }
+          } else {
+            rmTyping();
+            const { msgEl, bubbleEl, wrapEl } = addStreamMsg(webGrounded);
+            const result = await readStream(res, (partialText) => {
+              bubbleEl.innerHTML = fmt(partialText);
+              msgsEl.scrollTop = msgsEl.scrollHeight;
+            });
+            if (result.text && result.text.trim().length > 0) {
+              reply = sanitizeResponse(result.text);
+              history.push({ role: 'assistant', content: reply });
+              let formattedReply = fmt(reply);
+              if (webGrounded) formattedReply = '<div class="search-badge">🌐 Web-grounded response</div>' + formattedReply;
+              formattedReply = '<div class="search-badge">🔄 Responded via GPT</div>' + formattedReply;
+              finalizeStreamMsg(msgEl, bubbleEl, wrapEl, reply, formattedReply);
+              saveChat();
+              return;
+            } else {
+              msgEl.remove();
+              showTyping();
             }
           }
         } catch(oaiErr) { /* will retry */ }
       }
 
-      // If any model succeeded, stop retrying
       if (!allFailed) break;
     }
 
     rmTyping();
 
-    if (allFailed || (data.error && !usedGemini)) {
+    if (allFailed) {
       addMsg('ai', '🙏 Nithi AI is experiencing high demand right now. Please try again in a few seconds.');
       history.pop();
     } else {
-      let reply;
-      if (usedGemini) {
-        reply = data.text;
-      } else if (data.openai) {
-        reply = data.text;
-      } else {
-        reply = data.choices?.[0]?.message?.content || "Sorry, no response. Try again.";
-      }
+      // Non-streaming fallback response (Gemini or non-stream OpenAI)
       reply = sanitizeResponse(reply);
       history.push({ role: 'assistant', content: reply });
       let formattedReply = fmt(reply);
-      if (webGrounded) {
-        formattedReply = '<div class="search-badge">🌐 Web-grounded response</div>' + formattedReply;
-      }
-      if (data.openai) {
+      if (webGrounded) formattedReply = '<div class="search-badge">🌐 Web-grounded response</div>' + formattedReply;
+      if (usedOpenAI) {
         formattedReply = '<div class="search-badge">🔄 Responded via GPT</div>' + formattedReply;
       } else if (usedGemini) {
         formattedReply = '<div class="search-badge">🔄 Responded via Gemini Flash</div>' + formattedReply;
-      } else if (usedModel && usedModel.id !== getModels()[0].id) {
-        formattedReply = '<div class="search-badge">🔄 Responded via ' + usedModel.name + '</div>' + formattedReply;
       }
       addMsg('ai', formattedReply, reply);
       saveChat();
     }
   } catch(e) {
     rmTyping();
+    const streamMsg = document.getElementById('stream-msg');
+    if (streamMsg) streamMsg.remove();
     addMsg('ai', '🙏 Nithi AI is experiencing high demand right now. Please try again in a few seconds.');
     history.pop();
   } finally {

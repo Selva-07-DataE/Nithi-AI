@@ -8,10 +8,19 @@ const corsHeaders = {
   'Content-Type': 'application/json'
 };
 
+const streamCorsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type',
+  'Content-Type': 'text/event-stream',
+  'Cache-Control': 'no-cache',
+  'Connection': 'keep-alive'
+};
+
 async function handleChat(request, env) {
   try {
     const body = await request.json();
-    const { messages, provider, model } = body;
+    const { messages, provider, model, stream } = body;
 
     if (!provider) {
       return new Response(JSON.stringify({ error: 'Missing provider' }), { status: 400, headers: corsHeaders });
@@ -33,9 +42,14 @@ async function handleChat(request, env) {
           model: model || 'meta-llama/llama-3.3-70b-instruct:free',
           messages,
           max_tokens: 800,
-          temperature: 0.4
+          temperature: 0.4,
+          stream: !!stream
         })
       });
+
+      if (stream) {
+        return new Response(res.body, { status: res.status, headers: streamCorsHeaders });
+      }
       const data = await res.json();
       return new Response(JSON.stringify(data), { status: res.status, headers: corsHeaders });
     }
@@ -71,9 +85,14 @@ async function handleChat(request, env) {
           model: model || 'gpt-4o-mini',
           messages,
           max_completion_tokens: 800,
-          temperature: 0.4
+          temperature: 0.4,
+          stream: !!stream
         })
       });
+
+      if (stream) {
+        return new Response(res.body, { status: res.status, headers: streamCorsHeaders });
+      }
       const data = await res.json();
       return new Response(JSON.stringify(data), { status: res.status, headers: corsHeaders });
     }
