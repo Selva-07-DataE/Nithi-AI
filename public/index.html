@@ -1957,28 +1957,12 @@ function newChat() {
 
 // ===== CHAT PERSISTENCE =====
 function saveChat() {
-  try {
-    localStorage.setItem('nithi_chat', JSON.stringify(history));
-  } catch(e) { /* quota exceeded — silently fail */ }
+  // Chat is session-only — no persistence across page loads
 }
 
 function restoreChat() {
-  try {
-    const saved = JSON.parse(localStorage.getItem('nithi_chat'));
-    if (saved && saved.length > 0) {
-      document.getElementById('welcomeCard')?.remove();
-      saved.forEach(msg => {
-        if (msg.role === 'user') {
-          history.push(msg);
-          addMsg('user', msg.content.replace(/</g, '&lt;'));
-        } else if (msg.role === 'assistant') {
-          history.push(msg);
-          addMsg('ai', fmt(msg.content), msg.content);
-        }
-      });
-      setTimeout(() => { msgsEl.scrollTop = msgsEl.scrollHeight; }, 50);
-    }
-  } catch(e) { /* corrupted data — ignore */ }
+  // Always start fresh — no restoring previous conversations
+  localStorage.removeItem('nithi_chat');
 }
 
 // ===== VOICE INPUT =====
