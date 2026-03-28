@@ -2008,22 +2008,53 @@ function initSpeech() {
     if (inpEl.value.trim()) sbtnEl.disabled = false;
   };
 
-  recognition.onerror = () => {
+  recognition.onerror = (e) => {
     isRecording = false;
     document.getElementById('micBtn').classList.remove('recording');
-    showToast('⚠️ Voice input failed. Try again.');
+    if (e.error === 'not-allowed') {
+      showToast('⚠️ Microphone access denied. Allow mic in browser settings.');
+    } else if (e.error === 'network') {
+      showToast('⚠️ Voice needs internet connection.');
+    } else if (e.error === 'no-speech') {
+      showToast('⚠️ No speech detected. Try again.');
+    } else {
+      showToast('⚠️ Voice input failed. Try again.');
+    }
   };
 }
 
 function toggleVoice() {
-  if (!recognition) return;
+  if (!recognition) {
+    showToast('⚠️ Voice input not supported on this browser.');
+    return;
+  }
   if (isRecording) {
     recognition.stop();
   } else {
+    // Request mic permission first on mobile
+    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+      navigator.mediaDevices.getUserMedia({ audio: true }).then((stream) => {
+        stream.getTracks().forEach(t => t.stop());
+        startRecognition();
+      }).catch(() => {
+        showToast('⚠️ Microphone access denied. Allow mic in browser settings.');
+      });
+    } else {
+      startRecognition();
+    }
+  }
+}
+
+function startRecognition() {
+  try {
     recognition.start();
     isRecording = true;
     document.getElementById('micBtn').classList.add('recording');
     showToast('🎤 Listening...');
+  } catch (e) {
+    isRecording = false;
+    document.getElementById('micBtn').classList.remove('recording');
+    showToast('⚠️ Voice input failed. Try again.');
   }
 }
 
